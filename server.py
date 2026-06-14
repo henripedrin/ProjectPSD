@@ -61,7 +61,6 @@ Available Commands:
     USER_NOT_EXIST_IN_GROUP = "[Server] User is not part of this group."
     ERROR_USER_EXISTS = "[Server] Nickname already in use!"
 
-
     GROUP_EXISTS = "[Server] Group already exists."
     GROUP_NOT_EXISTS = "[Server] Group not exists."
     GROUP_CREATED = "[Server] Group '{group}' created successfully."
@@ -71,7 +70,6 @@ Available Commands:
     ERROR_COMMAND_NOT_EXISTS = "[Server] Unknown command. Type '-help' to see available commands."
     ERROR_COMMAND_HAS_NOT_ARGUMENTS = "[Server] Command '{command}' does not accept arguments."
     ERROR_COMMAND_EXPECTS_ARGUMENTS = "[Server] Command '{command}' expects arguments."
-
 
     ERROR_INVALID_FORMAT = "[Server] Invalid command format. Type '-help' for guidance."
     ERROR_USER_NOT_FOUND = "[Server] User '{target}' is not online."
@@ -190,7 +188,7 @@ def listAllGroups(client, message):
     listGroups = f"Groups: {groupsCurrent}"
 
     sendToClient(listGroups, client)
-    serverLog(ServerMessages.LOG_USER_LEFT_GROUP.format(user=clients[client]))
+    serverLog(ServerMessages.LOG_USER_LIST_GROUPS.format(user=clients[client]))
     return
 
 def listAllUsersInGroup(client, message):
@@ -229,52 +227,61 @@ def handleMsgCommand(client, message):
     target = parts[2]
     text_message = parts[3]
     sender = clients[client]
-    timestamp = datetime.now().strftime("%d/%m/%y %H:%M:%S")
 
     if sub_command == "U":
-        formatted = f"({sender}, {timestamp} [PV] {text_message})"
-
-        target_client = None
-        for c, name in clients.items():
-            if name == target:
-                target_client = c
-                break
-
-        if target_client:
-            formatted = f"[PV-MSG] {sender}, {timestamp}: [PV] {text_message}"
-            sendToClient(formatted, target_client)
-
-            sendToClient(f"[PV-MSG enviado para {target}]: {text_message}", client)
-            serverLog(ServerMessages.LOG_MSG_PRIVATE.format(sender=sender, target=target, msg=text_message))
-        else:
-            saveOfflineMessage(target, target_client)
-            sendToClient(f"[Enviado para {target}: {text_message}]", client)
-
-        serverLog(ServerMessages.LOG_MSG_PRIVATE.format(sender=sender, target=target, msg=text_message))
+        handleMsgToUser(client, sender, target, text_message)
     elif sub_command == "G":
-        if target not in groups:
-            sendToClient(ServerMessages.GROUP_NOT_EXISTS, client)
-            return
-
-        if sender not in groups[target]:
-            sendToClient(ServerMessages.USER_NOT_EXIST_IN_GROUP, client)
-            return
-
-        formatted = f"({sender}, {target}, {timestamp}) {text_message}"
-        online_users = list(clients.values())
-
-        for member in groups[target]:
-            if member in online_users:
-                for c, name in clients.items():
-                    if name == member:
-                        sendToClient(formatted, c)
-                        break
-            else:
-                saveOfflineMessage(member, formatted)
-
-        serverLog(ServerMessages.LOG_MSG_GROUP.format(sender=sender, target=target, msg=text_message))
+        handleMsgToGroup(client,sender, target, text_message)
     else:
         sendToClient(ServerMessages.ERROR_INVALID_FORMAT, client)
+
+def handleMsgToUser(client, sender, target, message):
+    target_client = None
+    timestamp = datetime.now().strftime("%d/%m/%y %H:%M:%S")
+
+    for c, name in clients.items():
+        if name == target:
+            target_client = c
+            break
+
+    messageFormatted = f"{timestamp} [PV-MSG] {sender}: [PV] {message}"
+
+    if target_client:
+        sendToClient(messageFormatted, target_client)
+        sendToClient(f"[PV-MSG] send to {target}]: {message}", client)
+    else:
+        saveOfflineMessage(target, messageFormatted)
+        sendToClient(f"[Send to {target}: {message}]", client)
+
+    serverLog(ServerMessages.LOG_MSG_PRIVATE.format(sender=sender, target=target, msg=message))
+
+def handleMsgToGroup(client, sender, target, message):
+    timestamp = datetime.now().strftime("%d/%m/%y %H:%M:%S")
+
+    if target not in groups:
+        sendToClient(ServerMessages.GROUP_NOT_EXISTS, client)
+        return
+
+    if sender not in groups[target]:
+        sendToClient(ServerMessages.USER_NOT_EXIST_IN_GROUP, client)
+        return
+
+    messageFormatted = f"{timestamp} [GP-MSG] ({sender}, {target}) {message}"
+    online_users = list(clients.values())
+
+    for member in groups[target]:
+        if member == sender:
+            continue
+        
+        if member in online_users:
+            for c, name in clients.items():
+                if name == member:
+                    sendToClient(messageFormatted, c)
+                    break
+        else:
+            saveOfflineMessage(member, messageFormatted)
+
+    serverLog(ServerMessages.LOG_MSG_GROUP.format(sender=sender, target=target, msg=message))
 
 def handleMsgtCommand(client, message):
     parts = message.split(maxsplit=2)
@@ -286,28 +293,20 @@ def handleMsgtCommand(client, message):
     text_message = parts[2]
     sender = clients[client]
     timestamp = datetime.now().strftime("%d/%m/%y %H:%M:%S")
-    formatted = f"({sender}, {timestamp}) [BROADCAST] {text_message}"
-    online_users = list(clients.values())
+    messageFormatted = f"{timestamp} [BROADCAST] ({sender}): {text_message}"
 
     if scope == "C":
-        sendToAll(formatted, client)
+        sendToAll(messageFormatted, client)
         serverLog(ServerMessages.LOG_MSGT.format(scope="ONLINE (C)", sender=sender, msg=text_message))
 
     elif scope == "D":
-        for member in list(offline_messages.keys()):
-            if member not in online_users:
-                saveOfflineMessage(member, formatted)
-
-        sendToClient("[Server] Mensagem de transmissão enviada para todos os usuários offline.", client)
+        saveOfflineMessageToAll(offline_messages.keys(), messageFormatted)
+        sendToClient("[Server] Broadcast message sent to all offline users.", client)
         serverLog(ServerMessages.LOG_MSGT.format(scope="OFFLINE (D)", sender=sender, msg=text_message))
 
     elif scope == "T":
-        sendToAll(formatted, client)
-
-        for member in list(offline_messages.keys()):
-            if member not in online_users:
-                saveOfflineMessage(member, formatted)
-
+        sendToAll(messageFormatted, client)
+        saveOfflineMessageToAll(offline_messages.keys(), messageFormatted)
         serverLog(ServerMessages.LOG_MSGT.format(scope="TOTAL (T)", sender=sender, msg=text_message))
     else:
         sendToClient(ServerMessages.ERROR_INVALID_FORMAT, client)
@@ -343,11 +342,27 @@ def sendToAll(message, senderClient):
             except:
                 removeClient(client)
 
+def sendOfflineMessages(messages, client):
+    inbox = ""
+    for message in messages:
+        if message is not None:
+            inbox += str(message) + "\n"
+
+    offlineInbox = f"""[Server] You have OFFLINE messages:
+{inbox}[Server]
+"""
+    sendToClient(offlineInbox, client)
+
 def saveOfflineMessage(target_user, formatted_message):
     if target_user not in offline_messages:
         offline_messages[target_user] = []
     offline_messages[target_user].append(formatted_message)
 
+def saveOfflineMessageToAll(target_users, formatted_message):
+    online_users = list(clients.values())
+    for member in list(offline_messages.keys()):
+            if member not in online_users:
+                saveOfflineMessage(member, formatted_message)
 
 def receiveMessage(client):
     try:
@@ -391,13 +406,9 @@ def clientService(client):
 
     serverLog(ServerMessages.LOG_USER_CONNECTED.format(user=user))
     sendToAll(ServerMessages.USER_JOIN_CHAT.format(user=user), client)
-
+    
     if user in offline_messages and offline_messages[user]:
-        sendToClient("\n[SERVIDOR] --- VOCÊ POSSUI MENSAGENS OFFLINE ---", client)
-        for message in offline_messages[user]:
-            if message is not None:
-                sendToClient(str(message), client)
-        sendToClient("[SERVIDOR] -----------------------------------------\n", client)
+        sendOfflineMessages(offline_messages[user], client)
         offline_messages[user] = []
     else:
         if user not in offline_messages:
@@ -418,16 +429,9 @@ def clientService(client):
             commands[command](client, message)
             continue
 
-        if command.startswith("-"):
+        else:
             sendToClient(ServerMessages.ERROR_COMMAND_NOT_EXISTS, client)
             serverLog(ServerMessages.LOG_USER_TYPE_UNKNOWN_COMMAND.format(user=clients[client], command=command))
-            continue
-
-        timestamp = datetime.now().strftime("%d/%m/%y %H:%M:%S")
-
-        messageFormatted = f"[CHAT] {user} {timestamp}: {message}"
-        serverLog(messageFormatted)
-        sendToAll(messageFormatted, client)
 
     disconnectClient(client, user)
 
