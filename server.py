@@ -1,14 +1,54 @@
 import socket, threading
+from datetime import datetime
 
 class ServerMessages:
-    SERVER_RUNNING = "Server running on {HOST}:{PORT}.\nWaiting for connections..."
+    HELP = """
+Available Commands:
 
-    USER_CONNECTED = "[Server] {user} connected."
-    USER_DISCONNECTED = "[Server] {user} disconnected."
-    USER_JOIN_CHAT = "[Server] {user} joined the chat!"
-    USER_LEFT_CHAT = "[Server] {user} left the chat."
-    USER_JOIN_GROUP = "[Server] {user} joined the {group} group!"
-    USER_LEFT_GROUP = "[Server] {user} left the {group} group."
+-help
+    Show this help message.
+
+-exit
+    Disconnect from the server.
+
+-listusers
+    List all online users.
+
+-listgroups
+    List all existing groups.
+
+-listgroupU <group_name>
+    List all users in the specified group.
+
+-creategroup <group_name>
+    Create a new group.
+
+-joingroup <group_name>
+    Join an existing group.
+
+-leavegroup <group_name>
+    Leave a group you are part of.
+"""
+
+    SERVER_RUNNING = "Server running on {HOST}:{PORT}.\nWaiting for connections..."
+    DISCONNECT_WARING = "[Server] Press 'Enter' to exit..."
+
+    LOG_HELP = "[INFO] User '{user}' used help command."
+    LOG_USER_TYPE_UNKNOWN_COMMAND = "[INFO] User '{user}' try type command '{command}'."
+    LOG_USER_CONNECTED = "[INFO] User '{user}' connected."
+    LOG_USER_DISCONNECTED = "[INFO] User '{user}' disconnected."
+    LOG_USER_LIST_USERS = "[INFO] User '{user}' listed online users."
+    LOG_USER_LIST_GROUPS = "[INFO] User '{user}' listed active groups."
+    LOG_USER_LIST_USER_GROUP = "[INFO] User '{user}' listed users in group '{group}'."
+    LOG_USER_CREATE_GROUP = "[INFO] User '{user}' create group '{group}'."
+    LOG_USER_JOIN_GROUP = "[INFO] User '{user}' join in the group '{group}'."
+    LOG_USER_LEFT_GROUP = "[INFO] User '{user}' left the group '{group}'."
+
+   
+    USER_JOIN_CHAT = "[Server] '{user}' joined the chat!"
+    USER_LEFT_CHAT = "[Server] '{user}' left the chat."
+    USER_JOIN_GROUP = "[Server] '{user}' joined the '{group}' group!"
+    USER_LEFT_GROUP = "[Server] '{user}' left the '{group}' group."
     USER_EXIST_IN_GROUP = "[Server] User is already part of this group."
     USER_NOT_EXIST_IN_GROUP = "[Server] User is not part of this group."
     ERROR_USER_EXISTS = "[Server] Nickname already in use!"
@@ -16,11 +56,14 @@ class ServerMessages:
     GROUP_EXISTS = "[Server] Group already exists."
     GROUP_NOT_EXISTS = "[Server] Group not exists."
     GROUP_CREATED = "[Server] Group '{group}' created successfully."
+    NO_GROUPS_CREATED = "[Server] No groups created."
+    NO_USERS_IN_GROUP =  "[Server] No users in this group."
 
+    ERROR_COMMAND_NOT_EXISTS = "[Server] Unknown command. Type '-help' to see available commands."
     ERROR_COMMAND_HAS_NOT_ARGUMENTS = "[Server] Command '{command}' does not accept arguments."
     ERROR_COMMAND_EXPECTS_ARGUMENTS = "[Server] Command '{command}' expects arguments."
-
 class ServerCommands:
+    HELP = "-help"
     EXIT = "-exit"
     LIST_USERS = "-listusers"
     LIST_GROUPS = "-listgroups"
@@ -29,12 +72,13 @@ class ServerCommands:
     JOIN_GROUP = "-joingroup"
     LEAVE_GROUP = "-leavegroup"
 
-def exitCommand(client, message):
+def help(client, message):
     if commandHasArguments(message):
-        sendToClient(ServerMessages.ERROR_COMMAND_HAS_NOT_ARGUMENTS.format(command=ServerCommands.EXIT), client)
+        sendToClient(ServerMessages.ERROR_COMMAND_HAS_NOT_ARGUMENTS.format(command=ServerCommands.HELP), client)
         return
     
-    removeClient(client)
+    sendToClient(ServerMessages.HELP,client)
+    serverLog(ServerMessages.LOG_HELP.format(user=clients[client]))
     return
 
 def listAllUsers(client, message):
@@ -44,12 +88,13 @@ def listAllUsers(client, message):
 
     users = []
 
-    for name in clients.values():
-        users.append(name)
+    for user in clients.values():
+        users.append(user)
 
     listUsers = f"Online: {users}"
 
     sendToClient(listUsers, client)
+    serverLog(ServerMessages.LOG_USER_LIST_USERS.format(user=clients[client]))
     return
 
 def createGroup(client, message):
@@ -65,6 +110,7 @@ def createGroup(client, message):
 
     groups[groupName] = set()
     sendToClient(ServerMessages.GROUP_CREATED.format(group=groupName), client)
+    serverLog(ServerMessages.LOG_USER_CREATE_GROUP.format(user=clients[client], group=groupName))
     return
 
 def joinGroup(client, message):
@@ -86,6 +132,7 @@ def joinGroup(client, message):
     
     groups[groupName].add(clients[client])
     sendToClient(ServerMessages.USER_JOIN_GROUP.format(user=user, group=groupName), client)
+    serverLog(ServerMessages.LOG_USER_JOIN_GROUP.format(user=user, group=groupName))
     return
 
 def leaveGroup(client, message):
@@ -107,11 +154,16 @@ def leaveGroup(client, message):
     
     groups[groupName].remove(clients[client])
     sendToClient(ServerMessages.USER_LEFT_GROUP.format(user=user, group=groupName), client)
+    serverLog(ServerMessages.LOG_USER_LEFT_GROUP.format(user=user, group=groupName))
     return
 
 def listAllGroups(client, message):
     if commandHasArguments(message):
         sendToClient(ServerMessages.ERROR_COMMAND_HAS_NOT_ARGUMENTS.format(command=ServerCommands.LIST_GROUPS), client)
+        return
+    
+    if not groups:
+        sendToClient(ServerMessages.NO_GROUPS_CREATED, client)
         return
 
     groupsCurrent = []
@@ -122,6 +174,7 @@ def listAllGroups(client, message):
     listGroups = f"Groups: {groupsCurrent}"
 
     sendToClient(listGroups, client)
+    serverLog(ServerMessages.LOG_USER_LEFT_GROUP.format(user=clients[client]))
     return
 
 def listAllUsersInGroup(client, message):
@@ -135,13 +188,19 @@ def listAllUsersInGroup(client, message):
         sendToClient(ServerMessages.GROUP_NOT_EXISTS, client)
         return
     
+    if not groups[groupName]:
+        sendToClient(ServerMessages.NO_USERS_IN_GROUP, client)
+        return
+    
     groupUsers = []
+
     for users in groups[groupName]:
         groupUsers.append(users)
     
     listGroupsUsers = f"Group Users: {groupUsers}"
 
     sendToClient(listGroupsUsers, client)
+    serverLog(ServerMessages.LOG_USER_LIST_USER_GROUP.format(user=clients[client], group=groupName))
     return
 
 HOST = '127.0.0.1'
@@ -151,7 +210,7 @@ clients = {}
 groups = {}
 
 commands = {
-    ServerCommands.EXIT: exitCommand,
+    ServerCommands.HELP: help,
     ServerCommands.LIST_USERS: listAllUsers,
     ServerCommands.LIST_GROUPS: listAllGroups,
     ServerCommands.LIST_USERS_IN_GROUP: listAllUsersInGroup,
@@ -172,12 +231,6 @@ def sendToAll(message, senderClient):
             except:
                 removeClient(client)
 
-def removeClient(client):
-    if client in clients:
-        del clients[client]
-    
-    client.close()
-
 def receiveMessage(client):
     try:
         message = decodeMessage(client.recv(1024))
@@ -188,6 +241,21 @@ def receiveMessage(client):
         return message
     except:
         return None
+
+def serverLog(log):
+    currentDate = datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    print(f"[{currentDate}] {log}")
+    
+def removeClient(client):
+    if client in clients:
+        del clients[client]
+    
+    client.close()
+
+def disconnectClient(client, user):
+    removeClient(client)
+    serverLog(ServerMessages.LOG_USER_DISCONNECTED.format(user=user))
+    sendToAll(ServerMessages.USER_LEFT_CHAT.format(user=user), client)
 
 def clientService(client):
     user = receiveMessage(client)
@@ -203,7 +271,7 @@ def clientService(client):
 
     clients[client] = user
 
-    print(ServerMessages.USER_CONNECTED.format(user=user))
+    serverLog(ServerMessages.LOG_USER_CONNECTED.format(user=user))
     sendToAll(ServerMessages.USER_JOIN_CHAT.format(user=user), client)
 
     while True:
@@ -215,16 +283,23 @@ def clientService(client):
         command = getCommand(message)
 
         if command in commands:
+
+            if command == ServerCommands.EXIT:
+                break
+
             commands[command](client, message)
             continue
 
-        messageFormatted = f"{user}: {message}"
-        print(messageFormatted)
+        if command.startswith("-"):
+            sendToClient(ServerMessages.ERROR_COMMAND_NOT_EXISTS, client)
+            serverLog(ServerMessages.LOG_USER_TYPE_UNKNOWN_COMMAND.format(user=clients[client], command=command))
+            continue
+
+        messageFormatted = f"[CHAT] {user}: {message}"
+        serverLog(messageFormatted)
         sendToAll(messageFormatted, client)
 
-    removeClient(client)
-    print(ServerMessages.USER_DISCONNECTED.format(user=user))
-    sendToAll(ServerMessages.USER_LEFT_CHAT.format(user=user), client)
+    disconnectClient(client, user)
 
 def nickNameExists(name):
     if name in clients.values():
