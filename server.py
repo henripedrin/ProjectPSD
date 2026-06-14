@@ -66,13 +66,17 @@ Available Commands:
     GROUP_CREATED = "[Server] Group '{group}' created successfully."
     NO_GROUPS_CREATED = "[Server] No groups created."
     NO_USERS_IN_GROUP =  "[Server] No users in this group."
+    ERROR_USER_NOT_FOUND = "[Server] User '{target}' is not online."
 
     ERROR_COMMAND_NOT_EXISTS = "[Server] Unknown command. Type '-help' to see available commands."
     ERROR_COMMAND_HAS_NOT_ARGUMENTS = "[Server] Command '{command}' does not accept arguments."
     ERROR_COMMAND_EXPECTS_ARGUMENTS = "[Server] Command '{command}' expects arguments."
 
     ERROR_INVALID_FORMAT = "[Server] Invalid command format. Type '-help' for guidance."
-    ERROR_USER_NOT_FOUND = "[Server] User '{target}' is not online."
+
+    ERROR_NO_ONE_ONLINE = "[Server] There are no others online users in the server."
+    ERROR_NO_ONE_OFFLINE = "[Server] There are no others offline users in the server."
+    ERROR_NO_CLIENTS = "[Server] There are no others users in the server."
 
 class ServerCommands:
     HELP = "-help"
@@ -238,6 +242,13 @@ def handleMsgCommand(client, message):
 def handleMsgToUser(client, sender, target, message):
     target_client = None
     timestamp = datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    online_users = list(clients.values())
+
+    user_exists = (target in online_users) or (target in offline_messages)
+
+    if not user_exists:
+        sendToClient(ServerMessages.ERROR_USER_NOT_FOUND.format(target=target), client)
+        return
 
     for c, name in clients.items():
         if name == target:
@@ -292,19 +303,34 @@ def handleMsgtCommand(client, message):
     scope = parts[1].upper()
     text_message = parts[2]
     sender = clients[client]
+    online_users = list(clients.values())
     timestamp = datetime.now().strftime("%d/%m/%y %H:%M:%S")
     messageFormatted = f"{timestamp} [BROADCAST] ({sender}): {text_message}"
 
     if scope == "C":
+        if len(online_users) <= 1:
+            sendToClient(ServerMessages.ERROR_NO_ONE_ONLINE, client)
+            return
         sendToAll(messageFormatted, client)
         serverLog(ServerMessages.LOG_MSGT.format(scope="ONLINE (C)", sender=sender, msg=text_message))
 
     elif scope == "D":
-        saveOfflineMessageToAll(offline_messages.keys(), messageFormatted)
+        disconnected_users = [user for user in offline_messages.keys() if user not in online_users]
+        if not disconnected_users:
+            sendToClient(ServerMessages.ERROR_NO_ONE_OFFLINE, client)
+            return
+        for member in disconnected_users:
+            saveOfflineMessage(member, messageFormatted)
         sendToClient("[Server] Broadcast message sent to all offline users.", client)
         serverLog(ServerMessages.LOG_MSGT.format(scope="OFFLINE (D)", sender=sender, msg=text_message))
 
     elif scope == "T":
+        has_others_online = len(online_users) > 1
+        disconnected_users = [user for user in offline_messages.keys() if user not in online_users]
+        has_others_offline = len(disconnected_users) > 0
+        if not has_others_online and not has_others_offline:
+            sendToClient(ServerMessages.ERROR_NO_CLIENTS, client)
+            return
         sendToAll(messageFormatted, client)
         saveOfflineMessageToAll(offline_messages.keys(), messageFormatted)
         serverLog(ServerMessages.LOG_MSGT.format(scope="TOTAL (T)", sender=sender, msg=text_message))
