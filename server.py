@@ -66,7 +66,7 @@ Available Commands:
     GROUP_CREATED = "[Server] Group '{group}' created successfully."
     NO_GROUPS_CREATED = "[Server] No groups created."
     NO_USERS_IN_GROUP =  "[Server] No users in this group."
-    ERROR_USER_NOT_FOUND = "[Server] User '{target}' is not online."
+    ERROR_USER_NOT_FOUND = "[Server] User '{target}' not found."
 
     ERROR_COMMAND_NOT_EXISTS = "[Server] Unknown command. Type '-help' to see available commands."
     ERROR_COMMAND_HAS_NOT_ARGUMENTS = "[Server] Command '{command}' does not accept arguments."
